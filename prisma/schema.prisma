@@ -1,0 +1,76 @@
+// Transfer Monitor — Prisma schema
+// Multi-tenant: cada transacción pertenece a un Client via clientId.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLIENT
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(CLIENT)
+  // Para usuarios CLIENT: el cliente (tenant) al que pertenecen.
+  clientId      String?
+  client        Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([clientId])
+}
+
+// Un Client = un tenant (uno de tus clientes del servicio).
+model Client {
+  id           String        @id @default(cuid())
+  name         String
+  // API Key secreta que Make usa para enviar transacciones de este cliente.
+  apiKey       String        @unique
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  users        User[]
+  transactions Transaction[]
+
+  @@index([apiKey])
+}
+
+enum OperationType {
+  TRANSFERENCIA
+  DEPOSITO
+  RETIRO
+  PAGO
+  OTRO
+}
+
+// La tabla "madre" de transacciones.
+model Transaction {
+  id            String        @id @default(cuid())
+  clientId      String
+  client        Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  remitente     String // Remitente
+  // Momento de la operación (combinamos Fecha + Hora en un timestamp).
+  occurredAt    DateTime
+  valor         Decimal       @db.Decimal(18, 2) // Valor en COP
+  cuenta        String // Cta
+  tipoOperacion OperationType @default(OTRO) // Tipo Operacion
+  correo        String // Correo
+  // Guardamos el payload original de Make para auditoría/debug.
+  rawPayload    Json?
+
+  createdAt     DateTime      @default(now())
+
+  @@index([clientId, occurredAt])
+  @@index([clientId])
+}
